@@ -1,5 +1,8 @@
 # Sparc (pure Rust)
 
+[![CI](https://github.com/keithyin/sparcrs/actions/workflows/ci.yml/badge.svg)](https://github.com/keithyin/sparcrs/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A sparsity-based consensus algorithm for long erroneous sequencing reads,
 reimplemented in 100% safe Rust with a minimal dependency footprint.
 

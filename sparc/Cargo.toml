@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.85"
 description = "Pure Rust implementation of the Sparc sparsity-based consensus algorithm for long erroneous sequencing reads"
 license = "MIT"
-repository = "https://github.com/keithyin/Sparc"
+repository = "https://github.com/keithyin/sparcrs"
 categories = ["science::bioinformatics"]
 keywords = ["bioinformatics", "consensus", "sequencing", "long-reads"]
 

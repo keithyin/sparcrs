@@ -80,13 +80,17 @@ fn relax_from_source(
 
     // 自适应阈值只依赖源位置的窗口最大覆盖度，C++ 在每条边上重复计算，
     // 这里提前到循环外（数值一致）
+    //
+    // coverage_threshold 的公开类型是 u32（覆盖度计数非负），打分沿用 C++ 的
+    // i32 语义：按 i32 回绕转换，CLI 无法表达的巨值（> i32::MAX）行为未定义不变量之外
+    let coverage_threshold = config.coverage_threshold as i32;
     let adaptive_threshold: i32 = if config.threshold < 0.0 {
         0 // 不使用
     } else {
         let mut value =
             ((source_window_max_coverage as i32) as f64 * config.threshold).round() as i32;
-        if value < config.coverage_threshold {
-            value = config.coverage_threshold;
+        if value < coverage_threshold {
+            value = coverage_threshold;
         }
         value
     };
@@ -131,7 +135,7 @@ fn relax_from_source(
                     let candidate = if config.threshold < 0.0 {
                         // 每条边惩罚下限 -2
                         (current_score
-                            + ((edge_coverage as i64) - (config.coverage_threshold as i64)).max(-2))
+                            + ((edge_coverage as i64) - i64::from(coverage_threshold)).max(-2))
                             as i32
                     } else {
                         (current_score + (edge_coverage as i64) - (adaptive_threshold as i64))

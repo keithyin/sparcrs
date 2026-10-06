@@ -173,7 +173,7 @@ pub fn generate_alignment_with_span(
     }
 }
 
-pub fn generate_config(rng: &mut Random, backbone_len: usize) -> SparcConfig {
+pub fn generate_config(rng: &mut Random, _backbone_len: usize) -> SparcConfig {
     let kmer = rng.pick(&[1, 1, 2, 2, 3, 4]);
     let cov_radius = rng.pick(&[0, 1, 2, 3, 10, 200, 500, 1000]);
     let threshold = rng.pick(&[-1.0_f64, -0.1, 0.0, 0.1, 0.2, 0.3, 100.0]);
@@ -185,12 +185,10 @@ pub fn generate_config(rng: &mut Random, backbone_len: usize) -> SparcConfig {
     ]);
     let coverage_threshold = rng.pick(&[1, 2, 5]);
     SparcConfig {
-        debug: false,
+        debug_output: None,
         kmer,
         coverage_threshold,
         scoring_method,
-        subgraph_begin: 0,
-        subgraph_end: backbone_len as i32,
         cov_radius,
         threshold,
     }
@@ -207,19 +205,19 @@ fn scoring_method_to_legacy(method: ScoringMethod) -> i32 {
 /// 新 crate 的 config → 旧 crate 的 config（字段逐一对应）。
 pub fn to_legacy_config(config: &SparcConfig) -> legacy::SparcConfig {
     legacy::SparcConfig {
-        debug: config.debug,
-        kmer: config.kmer,
-        coverage_threshold: config.coverage_threshold,
+        debug: false,
+        kmer: i32::from(config.kmer),
+        coverage_threshold: config.coverage_threshold as i32,
         scoring_method: scoring_method_to_legacy(config.scoring_method),
-        subgraph_begin: config.subgraph_begin,
-        subgraph_end: config.subgraph_end,
+        subgraph_begin: 0,
+        subgraph_end: 0,
         // 保留字段仅对原 CLI 读入的 m5 行生效，FFI/API 传入的 query 不经过
         // 它们，取 0 不影响对拍结果
         cns_start: 0,
         cns_end: 0,
         report_begin: 0,
         report_end: 0,
-        cov_radius: config.cov_radius,
+        cov_radius: config.cov_radius as i32,
         threshold: config.threshold,
     }
 }
@@ -315,8 +313,10 @@ pub fn serialize_scenario(scenario: &Scenario) -> String {
         scenario.config.kmer.to_string(),
         scenario.config.coverage_threshold.to_string(),
         scoring_method_to_legacy(scenario.config.scoring_method).to_string(),
-        scenario.config.subgraph_begin.to_string(),
-        scenario.config.subgraph_end.to_string(),
+        // 对拍场景不开 debug，legacy 的 subgraph 区间恒为 0；
+        // 字段位置需与 legacy-oracle.rs 的解析顺序保持一致
+        "0".to_string(),
+        "0".to_string(),
         scenario.config.cov_radius.to_string(),
         scenario.config.threshold.to_string(),
         scenario.raw_alignments.len().to_string(),

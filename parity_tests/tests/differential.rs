@@ -201,12 +201,10 @@ fn differential_parity_large_scenarios() {
         let mut scenario = Scenario {
             backbone: backbone.clone(),
             config: sparc::SparcConfig {
-                debug: false,
+                debug_output: None,
                 kmer: rng.pick(&[1, 2, 3]),
                 coverage_threshold: 2,
                 scoring_method: sparc::ScoringMethod::Linear,
-                subgraph_begin: 0,
-                subgraph_end: backbone.len() as i32,
                 cov_radius: 200,
                 threshold: -0.1,
             },

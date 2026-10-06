@@ -1,7 +1,7 @@
 # Sparc (pure Rust)
 
 A sparsity-based consensus algorithm for long erroneous sequencing reads,
-reimplemented in 100% safe Rust with zero runtime dependencies.
+reimplemented in 100% safe Rust with a minimal dependency footprint.
 
 This is a pure Rust rewrite of the original Sparc C++ implementation
 (Ye C, Ma Z. 2016, "Sparc: a sparsity-based consensus algorithm for long
@@ -10,7 +10,8 @@ which previously lived at https://github.com/keithyin/Sparc as a C++ core with
 Rust FFI bindings. The public API of the old binding crate is preserved.
 
 - No C/C++ toolchain required — `cargo build` is all you need.
-- No `unsafe`, no FFI, no external dependencies.
+- No `unsafe`, no FFI; the only runtime dependency is `thiserror`
+  (`serde` support is opt-in and off by default).
 - Behavior-equivalent to the C++ implementation (validated by differential
   testing against the original binding); see "Behavior parity" below.
 - 1.4–2.1x faster than the C++ binding on benchmark workloads.
@@ -27,9 +28,9 @@ let backbone = "GATCGGGCTAA";
 // each Query is one read alignment against the backbone
 // (m5-style aligned strings with '-' gaps)
 let queries = vec![
-    Query::new(backbone.to_string(), "GATCGCGCTAA".to_string(), 0, backbone.len()),
-    Query::new(backbone.to_string(), "GATCGCGCCAA".to_string(), 0, backbone.len()),
-    Query::new(backbone.to_string(), "GCTCGGCCCAA".to_string(), 0, backbone.len()),
+    Query::new(backbone, "GATCGCGCTAA", 0, backbone.len()),
+    Query::new(backbone, "GATCGCGCCAA", 0, backbone.len()),
+    Query::new(backbone, "GCTCGGCCCAA", 0, backbone.len()),
 ];
 
 let mut config = SparcConfig::default();
@@ -42,28 +43,43 @@ println!("consensus: {}", consensus.seq);
 // consensus.start / consensus.end: best-path range on the backbone [start, end);
 // end == 0 means "no trusted path, seq is the backbone as-is";
 // start == None means the path head is not on the backbone.
+// Or use the typed view instead of decoding those sentinels:
+//   consensus.region() -> PathRegion::{Backbone{start, end}, OrphanHead{end}, Fallback}
 
 // alignments can also be parsed from blasr m5 rows/files:
 let m5 = std::fs::File::open("backbone-0.mapped.m5").unwrap();
 let queries = parse_m5(BufReader::new(m5)).unwrap();
-// negative-strand rows (tStrand '-') are handled automatically
+// negative-strand rows (tStrand '-') are handled automatically;
+// for large files, stream records one by one with M5Reader (an Iterator)
 ```
 
 All inputs are validated before the algorithm runs; invalid input (k-mer
 out of range, backbone shorter than k, non-ACGT bases, inconsistent alignment
-lengths/spans, out-of-range coordinates) returns a `SparcError` instead of
-misbehaving.
+lengths/spans, out-of-range coordinates, NaN/+inf threshold) returns a
+`SparcError` instead of misbehaving.
 
 ## Parameters (CLI heritage)
 
 | parameter | field | meaning |
 |-----------|-------|---------|
-| `k` | `kmer` | k-mer size (suggested [1, 2]) |
-| `c` | `coverage_threshold` | coverage threshold (range [1, 5], suggest 2) |
-| `t` | `threshold` | adaptive threshold ([0.0, 0.3]); `< 0` disables adaptivity |
-| — | `cov_radius` | coverage sliding-window radius (original CLI: 200) |
+| `k` | `kmer: u8` | k-mer size (suggested [1, 2]) |
+| `c` | `coverage_threshold: u32` | coverage threshold (range [1, 5], suggest 2) |
+| `t` | `threshold: f64` | adaptive threshold ([0.0, 0.3]); `< 0` disables adaptivity; NaN/+inf rejected |
+| — | `cov_radius: usize` | coverage sliding-window radius (original CLI: 200) |
 | — | `scoring_method` | `ScoringMethod::Linear` (default) or `ScoringMethod::LogRatio` (reproduces a legacy C++ behavior) |
-| — | `debug` | write debug artifacts into the process CWD |
+| — | `debug_output: Option<DebugConfig>` | when `Some`, write debug artifacts (`align_profile.txt`, `subgraph.dot`, `DEBUG.consensus.fasta`) into `DebugConfig::output_dir`; never written implicitly |
+
+## Serialization (optional `serde` feature)
+
+`SparcConfig`, `DebugConfig`, `ScoringMethod`, `Consensus`, `PathRegion`,
+`Query` and `SparcError` implement `Serialize`/`Deserialize` behind the
+`serde` feature (off by default, keeping the default build dependency-free
+apart from `thiserror`):
+
+```toml
+[dependencies]
+sparc = { version = "0.7", features = ["serde"] }
+```
 
 ## Performance
 

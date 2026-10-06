@@ -1,6 +1,6 @@
 [package]
 name = "sparc"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Pure Rust implementation of the Sparc sparsity-based consensus algorithm for long erroneous sequencing reads"
@@ -9,5 +9,14 @@ repository = "https://github.com/keithyin/Sparc"
 categories = ["science::bioinformatics"]
 keywords = ["bioinformatics", "consensus", "sequencing", "long-reads"]
 
+[features]
+# 序列化支持（SparcConfig / Consensus / Query / SparcError 等）；默认关闭，保持零运行时依赖
+serde = ["dep:serde"]
+
 [dependencies]
 thiserror = "2"
+serde = { version = "1", features = ["derive"], optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+serde_json = "1"

@@ -14,6 +14,15 @@ jobs:
       # 主 crate 不依赖任何 C++ 工具链，单独验证
       - run: cargo build -p sparc
       - run: cargo test -p sparc
+      - run: cargo test -p sparc --features serde
+
+  # 验证 Cargo.toml 声明的 rust-version（1.85，edition 2024 的最低版本）
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.85
+      - run: cargo test -p sparc
 
   lint:
     runs-on: ubuntu-latest
@@ -23,7 +32,28 @@ jobs:
         with:
           components: clippy, rustfmt
       - run: cargo fmt -p sparc --check
-      - run: cargo clippy -p sparc -- -D warnings
+      - run: cargo clippy -p sparc --all-targets -- -D warnings
+      - name: cargo doc (deny warnings)
+        run: cargo doc -p sparc --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  # 与上一个提交（0.6.0）对比公开 API，捕获非预期的破坏性变更；
+  # 0.7.0 的破坏性改动已伴随 minor 版本号提升，应能通过
+  semver-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/install-action@cargo-semver-checks
+      - run: cargo semver-checks --package sparc --baseline-rev "HEAD~1"
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test -p sparc
 
   # 差分对拍 + 基准编译：需要旧 C++ binding 作为 oracle
   differential:

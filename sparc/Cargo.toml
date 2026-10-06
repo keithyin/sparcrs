@@ -10,3 +10,4 @@ categories = ["science::bioinformatics"]
 keywords = ["bioinformatics", "consensus", "sequencing", "long-reads"]
 
 [dependencies]
+thiserror = "2"

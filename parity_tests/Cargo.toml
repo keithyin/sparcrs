@@ -1,3 +1,6 @@
+# 独立 workspace 根：不参与上级 workspace（根 Cargo.toml 已 exclude）
+[workspace]
+
 [package]
 name = "parity_tests"
 version = "0.1.0"

@@ -1,6 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["sparc", "parity_tests"]
+members = ["sparc"]
+# parity_tests 依赖仓库外的 C++ oracle（../../Sparc），独立成 workspace，
+# 仅在 differential job 中单独构建，避免拖垮其他 CI job 的清单加载
+exclude = ["parity_tests"]
 
 [profile.release]
 lto = "thin"

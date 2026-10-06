@@ -1,4 +1,5 @@
-/target
+# 匹配任意层级（parity_tests 现为独立 workspace，有自己的 target/）
+target/
 Cargo.lock
 
 # ZCode 工作目录

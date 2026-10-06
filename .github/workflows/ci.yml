@@ -44,6 +44,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 完整历史，否则 --baseline-rev HEAD~1 在浅克隆下无法解析
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@nightly
       - uses: taiki-e/install-action@cargo-semver-checks
       - run: cargo semver-checks --package sparc --baseline-rev "HEAD~1"
@@ -71,5 +74,6 @@ jobs:
         run: |
           workspace_dir="$(dirname "${{ github.workspace }}")"
           sudo mv "${{ github.workspace }}/Sparc" "$workspace_dir/Sparc"
-      - run: cargo test -p parity_tests
-      - run: cargo bench -p parity_tests --no-run
+      # parity_tests 已被 exclude 出 workspace，需以自身 manifest 单独构建
+      - run: cargo test --manifest-path parity_tests/Cargo.toml
+      - run: cargo bench --manifest-path parity_tests/Cargo.toml --no-run

@@ -1,0 +1,11 @@
+/target
+Cargo.lock
+
+# ZCode 工作目录
+.zcode/
+
+# 调试模式运行测试可能产生的输出文件
+align_profile.txt
+subgraph.dot
+subgraph_cns.dot
+DEBUG.consensus.fasta

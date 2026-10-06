@@ -1,0 +1,17 @@
+[package]
+name = "parity_tests"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "开发专用 crate：新旧 Sparc 实现的差分对拍与性能对比基准（不发布）"
+
+[dependencies]
+sparc = { path = "../sparc" }
+sparc-legacy = { package = "sparc", path = "../../Sparc" }
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "parity"
+harness = false

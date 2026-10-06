@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # 主 crate 不依赖任何 C++ 工具链，单独验证
+      - run: cargo build -p sparc
+      - run: cargo test -p sparc
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - run: cargo fmt -p sparc --check
+      - run: cargo clippy -p sparc -- -D warnings
+
+  # 差分对拍 + 基准编译：需要旧 C++ binding 作为 oracle
+  differential:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: keithyin/Sparc
+          ref: master
+          path: Sparc
+      - uses: dtolnay/rust-toolchain@stable
+      # 差分测试假定 oracle 位于 ../Sparc（工作区同级目录）
+      - name: Place oracle at ../Sparc
+        run: |
+          workspace_dir="$(dirname "${{ github.workspace }}")"
+          sudo mv "${{ github.workspace }}/Sparc" "$workspace_dir/Sparc"
+      - run: cargo test -p parity_tests
+      - run: cargo bench -p parity_tests --no-run

@@ -1,0 +1,7 @@
+[workspace]
+resolver = "3"
+members = ["sparc", "parity_tests"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

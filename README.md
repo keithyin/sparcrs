@@ -62,7 +62,7 @@ misbehaving.
 | `c` | `coverage_threshold` | coverage threshold (range [1, 5], suggest 2) |
 | `t` | `threshold` | adaptive threshold ([0.0, 0.3]); `< 0` disables adaptivity |
 | — | `cov_radius` | coverage sliding-window radius (original CLI: 200) |
-| — | `scoring_method` | 2 = default linear subtraction (1 reproduces a legacy C++ behavior) |
+| — | `scoring_method` | `ScoringMethod::Linear` (default) or `ScoringMethod::LogRatio` (reproduces a legacy C++ behavior) |
 | — | `debug` | write debug artifacts into the process CWD |
 
 ## Performance
@@ -99,7 +99,7 @@ known C++ bugs rather than parity failures.
 
 Also not ported (dead code in the C++ core): MurmurHash64A/B,
 `SparseConsensus*` structures, `Read`/`reads_table`/`Contigs`,
-`SparcMergeNodes`, `SparcMultiply` (the `scoring_method == 1` branch is
+`SparcMergeNodes`, `SparcMultiply` (the `ScoringMethod::LogRatio` branch is
 preserved bug-compatible), and the unused `kmer_t*` variants.
 
 ## Repository layout

@@ -35,6 +35,15 @@ mod pipeline;
 pub use error::SparcError;
 pub use m5::parse_m5;
 
+/// 打分方法（对应原 CLI 的 scoring_method 参数）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScoringMethod {
+    /// 对数比例法（原 CLI 值 1）。保留 C++ 既有行为：更新时得分恒写 0。
+    LogRatio,
+    /// 线性减法（原 CLI 值 2，默认）。
+    Linear,
+}
+
 /// 算法参数。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SparcConfig {
@@ -45,20 +54,12 @@ pub struct SparcConfig {
     pub kmer: i32,
     /// 覆盖度阈值（CLI 的 c），建议 [1, 5]。
     pub coverage_threshold: i32,
-    /// 打分方法：1 = 对数比例法，2 = 默认的线性减法。
-    pub scoring_method: i32,
+    /// 打分方法。
+    pub scoring_method: ScoringMethod,
     /// debug 模式输出子图 dot 文件的区间起点（其余情况下不生效）。
     pub subgraph_begin: i32,
     /// debug 模式输出子图 dot 文件的区间终点（其余情况下不生效）。
     pub subgraph_end: i32,
-    /// 保留字段，当前实现未使用。
-    pub cns_start: i32,
-    /// 保留字段，当前实现未使用。
-    pub cns_end: i32,
-    /// 保留字段：仅对原 CLI 读入的 m5 行生效，不影响通过 API 传入的 query。
-    pub report_begin: i32,
-    /// 保留字段：仅对原 CLI 读入的 m5 行生效，不影响通过 API 传入的 query。
-    pub report_end: i32,
     /// 覆盖度滑动窗口半径（原 CLI 固定 200，绑定默认 2）。
     pub cov_radius: i32,
     /// 自适应阈值（CLI 的 t）。<0 关闭自适应（CLI 默认 -0.1），建议 [0.0, 0.3]。
@@ -71,13 +72,9 @@ impl Default for SparcConfig {
             debug: false,
             kmer: 1,
             coverage_threshold: 2,
-            scoring_method: 2,
+            scoring_method: ScoringMethod::Linear,
             subgraph_begin: 0,
             subgraph_end: 0,
-            cns_start: 0,
-            cns_end: 0,
-            report_begin: 0,
-            report_end: 0,
             cov_radius: 2,
             threshold: 0.2,
         }
@@ -92,8 +89,8 @@ impl Default for SparcConfig {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Consensus {
     pub seq: String,
-    pub start: Option<u32>,
-    pub end: u32,
+    pub start: Option<usize>,
+    pub end: usize,
 }
 
 /// 一条 read 相对 backbone 的比对，对应一行 blasr m5 记录。
@@ -269,10 +266,7 @@ mod tests {
 
     fn make_config(backbone_len: usize) -> SparcConfig {
         SparcConfig {
-            debug: false,
-            report_end: backbone_len as i32,
             subgraph_end: backbone_len as i32,
-            cns_end: backbone_len as i32,
             ..SparcConfig::default()
         }
     }

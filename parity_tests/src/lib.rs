@@ -10,7 +10,7 @@
 //! - 短 backbone（node_vec 只有 1 个节点）；
 //! - cov_radius 大于节点数（滑窗 clamp）、radius = 0（前缀最大值 quirk）；
 //! - 负链比对（反向互补路径）；
-//! - scoring_method 1（C++ 既有 bug 行为）/ 2 / 3；
+//! - scoring_method：`LogRatio`（C++ 既有 bug 行为）/ `Linear`；
 //! - threshold 关闭自适应与极端大值（fallback 路径）。
 //!
 //! 已知边界：生成器不直接产生「双 gap 列」（同一列两条比对串都是 '-'），
@@ -20,7 +20,7 @@
 //! 因此对拍通过独立子进程 oracle 进行（见 `src/bin/legacy-oracle.rs`），
 //! oracle 崩溃被记录为 C++ 既有 bug，不计入对拍失败。
 
-use sparc::{Query, SparcConfig};
+use sparc::{Query, ScoringMethod, SparcConfig};
 use sparc_legacy as legacy;
 
 /// splitmix64 确定性随机数发生器
@@ -177,7 +177,12 @@ pub fn generate_config(rng: &mut Random, backbone_len: usize) -> SparcConfig {
     let kmer = rng.pick(&[1, 1, 2, 2, 3, 4]);
     let cov_radius = rng.pick(&[0, 1, 2, 3, 10, 200, 500, 1000]);
     let threshold = rng.pick(&[-1.0_f64, -0.1, 0.0, 0.1, 0.2, 0.3, 100.0]);
-    let scoring_method = rng.pick(&[2, 2, 2, 1, 3]);
+    let scoring_method = rng.pick(&[
+        ScoringMethod::Linear,
+        ScoringMethod::Linear,
+        ScoringMethod::Linear,
+        ScoringMethod::LogRatio,
+    ]);
     let coverage_threshold = rng.pick(&[1, 2, 5]);
     SparcConfig {
         debug: false,
@@ -186,12 +191,16 @@ pub fn generate_config(rng: &mut Random, backbone_len: usize) -> SparcConfig {
         scoring_method,
         subgraph_begin: 0,
         subgraph_end: backbone_len as i32,
-        cns_start: 0,
-        cns_end: backbone_len as i32,
-        report_begin: 0,
-        report_end: backbone_len as i32,
         cov_radius,
         threshold,
+    }
+}
+
+/// 新 crate 的打分方法 → 原 CLI 数值（legacy binding 的 scoring_method 字段）。
+fn scoring_method_to_legacy(method: ScoringMethod) -> i32 {
+    match method {
+        ScoringMethod::LogRatio => 1,
+        ScoringMethod::Linear => 2,
     }
 }
 
@@ -201,13 +210,15 @@ pub fn to_legacy_config(config: &SparcConfig) -> legacy::SparcConfig {
         debug: config.debug,
         kmer: config.kmer,
         coverage_threshold: config.coverage_threshold,
-        scoring_method: config.scoring_method,
+        scoring_method: scoring_method_to_legacy(config.scoring_method),
         subgraph_begin: config.subgraph_begin,
         subgraph_end: config.subgraph_end,
-        cns_start: config.cns_start,
-        cns_end: config.cns_end,
-        report_begin: config.report_begin,
-        report_end: config.report_end,
+        // 保留字段仅对原 CLI 读入的 m5 行生效，FFI/API 传入的 query 不经过
+        // 它们，取 0 不影响对拍结果
+        cns_start: 0,
+        cns_end: 0,
+        report_begin: 0,
+        report_end: 0,
         cov_radius: config.cov_radius,
         threshold: config.threshold,
     }
@@ -303,13 +314,9 @@ pub fn serialize_scenario(scenario: &Scenario) -> String {
         scenario.backbone.clone(),
         scenario.config.kmer.to_string(),
         scenario.config.coverage_threshold.to_string(),
-        scenario.config.scoring_method.to_string(),
+        scoring_method_to_legacy(scenario.config.scoring_method).to_string(),
         scenario.config.subgraph_begin.to_string(),
         scenario.config.subgraph_end.to_string(),
-        scenario.config.cns_start.to_string(),
-        scenario.config.cns_end.to_string(),
-        scenario.config.report_begin.to_string(),
-        scenario.config.report_end.to_string(),
         scenario.config.cov_radius.to_string(),
         scenario.config.threshold.to_string(),
         scenario.raw_alignments.len().to_string(),
@@ -329,7 +336,7 @@ pub fn serialize_scenario(scenario: &Scenario) -> String {
 }
 
 /// oracle 的结果：成功时为 `(seq, start, end)`，失败时为错误消息。
-pub type OracleResult = Result<(String, Option<u32>, u32), String>;
+pub type OracleResult = Result<(String, Option<usize>, usize), String>;
 
 /// 解析 oracle 的输出行：`OK \t start \t end \t seq` 或 `ERR \t message`。
 pub fn parse_oracle_line(line: &str) -> Result<OracleResult, String> {
@@ -339,9 +346,9 @@ pub fn parse_oracle_line(line: &str) -> Result<OracleResult, String> {
             let start = if fields[1] == "-1" {
                 None
             } else {
-                Some(fields[1].parse::<u32>().expect("oracle start 解析失败"))
+                Some(fields[1].parse::<usize>().expect("oracle start 解析失败"))
             };
-            let end = fields[2].parse::<u32>().expect("oracle end 解析失败");
+            let end = fields[2].parse::<usize>().expect("oracle end 解析失败");
             Ok(Ok((fields[3].to_string(), start, end)))
         }
         "ERR" => Ok(Err(fields[1].to_string())),

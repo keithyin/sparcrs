@@ -1,6 +1,6 @@
 //! k-mer 图（对应 C++ `GraphConstruction.cpp` + `ConsensusNode`/`ConsensusEdgeNode`）。
 //!
-//! 内存模型：arena（`Vec<GraphNode>` + u32 索引）替代 C++ 的逐节点 malloc +
+//! 内存模型：arena（`Vec<GraphNode>` + 下标索引）替代 C++ 的逐节点 malloc +
 //! 裸指针链表。前 `backbone_node_count` 个节点即 C++ 的 `node_vec`
 //! （按 backbone k-mer 起始位置索引），其后是分支/孤儿节点。
 //! 孤儿节点在 C++ 中需要 `orphan_nodes` 单独登记才能安全释放；
@@ -22,7 +22,7 @@ pub(crate) struct GraphNode {
     /// 2-bit 编码的 k-mer（首碱基在高位），K ≤ 16 时不超过 32 bit。
     pub(crate) kmer: u32,
     /// backbone 位置（C++ `coord`）：backbone 节点 = 自身下标，分支节点 = 0。
-    pub(crate) backbone_position: u32,
+    pub(crate) backbone_position: usize,
     /// 最优路径动态规划的得分（C++ `score`）。
     pub(crate) score: i64,
     /// 覆盖度（C++ `cov`）：backbone 节点初值 1，每次命中 +1。
@@ -32,7 +32,7 @@ pub(crate) struct GraphNode {
     /// debug 输出用：是否在选出的共识路径上。
     pub(crate) selected: bool,
     /// 最优路径回溯指针（C++ `last_node`）；None = 无前驱。
-    pub(crate) best_predecessor: Option<u32>,
+    pub(crate) best_predecessor: Option<usize>,
     /// 右向边（到后继节点）。
     pub(crate) right_edges: Vec<GraphEdge>,
     /// 左向边（到前驱节点）。
@@ -46,7 +46,7 @@ pub(crate) struct GraphNode {
 #[derive(Debug, Clone)]
 pub(crate) struct GraphEdge {
     /// 边指向的节点下标（C++ `node_ptr`）。
-    pub(crate) target_node: u32,
+    pub(crate) target_node: usize,
     /// 边覆盖度（C++ `edge_cov`）。
     pub(crate) coverage: i32,
 }
@@ -79,7 +79,7 @@ impl KmerGraph {
             let node_index = position + 1 - kmer_size;
             let mut node = GraphNode {
                 kmer: rolling_kmer as u32,
-                backbone_position: node_index as u32,
+                backbone_position: node_index,
                 score: 0,
                 coverage: 1,
                 in_backbone: true,
@@ -90,11 +90,11 @@ impl KmerGraph {
             };
             if node_index >= 1 {
                 nodes[node_index - 1].right_edges.push(GraphEdge {
-                    target_node: node_index as u32,
+                    target_node: node_index,
                     coverage: 1,
                 });
                 node.left_edges.push(GraphEdge {
-                    target_node: (node_index - 1) as u32,
+                    target_node: node_index - 1,
                     coverage: 1,
                 });
             }
@@ -107,12 +107,8 @@ impl KmerGraph {
         }
     }
 
-    fn push_node(&mut self, kmer: u32, in_backbone: bool) -> u32 {
-        assert!(
-            self.nodes.len() < u32::MAX as usize,
-            "k-mer 图节点数超出 u32 索引范围"
-        );
-        let node_index = self.nodes.len() as u32;
+    fn push_node(&mut self, kmer: u32, in_backbone: bool) -> usize {
+        let node_index = self.nodes.len();
         self.nodes.push(GraphNode {
             kmer,
             backbone_position: 0,
@@ -145,8 +141,8 @@ impl KmerGraph {
 
         let query_length = query_aligned.len();
         let mut target_position: usize = query.target_start;
-        let mut previous_node: Option<u32> = None;
-        let mut current_node: Option<u32>;
+        let mut previous_node: Option<usize> = None;
+        let mut current_node: Option<usize>;
         // C++ 的 MatchPosition：Some(backbone 位置) = match 区，None = 分支区
         let mut match_position: Option<usize>;
 
@@ -200,9 +196,9 @@ impl KmerGraph {
                     // match 区：锚定到 backbone 节点
                     // C++ 直接下标访问 node_vec[MatchPosition]；越界属于
                     // 病态输入（历史 UB 路径），这里取 None 跳过以保证安全
-                    let anchored = self.nodes.get(position).map(|_| position as u32);
+                    let anchored = self.nodes.get(position).map(|_| position);
                     if let Some(anchored_index) = anchored {
-                        self.nodes[anchored_index as usize].coverage += 1;
+                        self.nodes[anchored_index].coverage += 1;
                         if let Some(previous_index) = previous_node {
                             upsert_edge_by_identity(
                                 &mut self.nodes,
@@ -230,13 +226,11 @@ impl KmerGraph {
                         }
                         Some(previous_index) => {
                             // 在 previous 的右边里按「目标 kmer 值 + 非 backbone」找
-                            let mut hit: Option<(usize, u32)> = None;
-                            for (edge_position, edge) in self.nodes[previous_index as usize]
-                                .right_edges
-                                .iter()
-                                .enumerate()
+                            let mut hit: Option<(usize, usize)> = None;
+                            for (edge_position, edge) in
+                                self.nodes[previous_index].right_edges.iter().enumerate()
                             {
-                                let target = &self.nodes[edge.target_node as usize];
+                                let target = &self.nodes[edge.target_node];
                                 if target.kmer == kmer && !target.in_backbone {
                                     hit = Some((edge_position, edge.target_node));
                                     break;
@@ -245,20 +239,17 @@ impl KmerGraph {
 
                             match hit {
                                 Some((edge_position, hit_index)) => {
-                                    self.nodes[previous_index as usize].right_edges
-                                        [edge_position]
+                                    self.nodes[previous_index].right_edges[edge_position]
                                         .coverage += 1;
-                                    self.nodes[hit_index as usize].coverage += 1;
+                                    self.nodes[hit_index].coverage += 1;
                                     current_node = Some(hit_index);
                                 }
                                 None => {
                                     let branch_index = self.push_node(kmer, false);
-                                    self.nodes[previous_index as usize].right_edges.push(
-                                        GraphEdge {
-                                            target_node: branch_index,
-                                            coverage: 1,
-                                        },
-                                    );
+                                    self.nodes[previous_index].right_edges.push(GraphEdge {
+                                        target_node: branch_index,
+                                        coverage: 1,
+                                    });
                                     current_node = Some(branch_index);
                                 }
                             }
@@ -266,25 +257,24 @@ impl KmerGraph {
                             // 回连 previous：按「目标节点 kmer 值 == previous 的 kmer 值」
                             // 匹配（C++ 原始行为，可能命中同 kmer 的其他节点）
                             let current_index = current_node.expect("current_node 已设置");
-                            let previous_kmer = self.nodes[previous_index as usize].kmer;
-                            let left_hit = self.nodes[current_index as usize]
-                                .left_edges
-                                .iter()
-                                .position(|edge| {
-                                    self.nodes[edge.target_node as usize].kmer == previous_kmer
-                                });
+                            let previous_kmer = self.nodes[previous_index].kmer;
+                            let left_hit =
+                                self.nodes[current_index]
+                                    .left_edges
+                                    .iter()
+                                    .position(|edge| {
+                                        self.nodes[edge.target_node].kmer == previous_kmer
+                                    });
                             match left_hit {
                                 Some(edge_position) => {
-                                    self.nodes[current_index as usize].left_edges[edge_position]
-                                        .coverage += 1;
+                                    self.nodes[current_index].left_edges[edge_position].coverage +=
+                                        1;
                                 }
                                 None => {
-                                    self.nodes[current_index as usize]
-                                        .left_edges
-                                        .push(GraphEdge {
-                                            target_node: previous_index,
-                                            coverage: 1,
-                                        });
+                                    self.nodes[current_index].left_edges.push(GraphEdge {
+                                        target_node: previous_index,
+                                        coverage: 1,
+                                    });
                                 }
                             }
                         }
@@ -310,10 +300,10 @@ enum Side {
 
 /// 按「目标节点身份」查找边，命中则覆盖度 +1，否则新建边（coverage = 1）。
 /// 对应 C++ match 区的边链表扫描（`node_ptr == current_node`）。
-fn upsert_edge_by_identity(nodes: &mut [GraphNode], from_node: u32, to_node: u32, side: Side) {
+fn upsert_edge_by_identity(nodes: &mut [GraphNode], from_node: usize, to_node: usize, side: Side) {
     let edges = match side {
-        Side::Right => &mut nodes[from_node as usize].right_edges,
-        Side::Left => &mut nodes[from_node as usize].left_edges,
+        Side::Right => &mut nodes[from_node].right_edges,
+        Side::Left => &mut nodes[from_node].left_edges,
     };
     for edge in edges.iter_mut() {
         if edge.target_node == to_node {

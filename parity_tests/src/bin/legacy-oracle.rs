@@ -32,10 +32,11 @@ fn main() {
         scoring_method: next().parse().expect("scoring_method"),
         subgraph_begin: next().parse().expect("subgraph_begin"),
         subgraph_end: next().parse().expect("subgraph_end"),
-        cns_start: next().parse().expect("cns_start"),
-        cns_end: next().parse().expect("cns_end"),
-        report_begin: next().parse().expect("report_begin"),
-        report_end: next().parse().expect("report_end"),
+        // 保留字段仅对原 CLI 读入的 m5 行生效，对 FFI/API 传入的 query 无影响
+        cns_start: 0,
+        cns_end: 0,
+        report_begin: 0,
+        report_end: 0,
         cov_radius: next().parse().expect("cov_radius"),
         threshold: next().parse().expect("threshold"),
     };

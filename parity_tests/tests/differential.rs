@@ -11,7 +11,7 @@ use std::process::{Command, Stdio};
 
 /// 一次 oracle 调用的结果。
 enum OracleOutcome {
-    Match(Result<(String, Option<u32>, u32), String>),
+    Match(Result<(String, Option<usize>, usize), String>),
     Crashed,
 }
 
@@ -204,13 +204,9 @@ fn differential_parity_large_scenarios() {
                 debug: false,
                 kmer: rng.pick(&[1, 2, 3]),
                 coverage_threshold: 2,
-                scoring_method: 2,
+                scoring_method: sparc::ScoringMethod::Linear,
                 subgraph_begin: 0,
                 subgraph_end: backbone.len() as i32,
-                cns_start: 0,
-                cns_end: backbone.len() as i32,
-                report_begin: 0,
-                report_end: backbone.len() as i32,
                 cov_radius: 200,
                 threshold: -0.1,
             },

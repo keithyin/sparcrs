@@ -4,8 +4,8 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use crate::SparcConfig;
 use crate::graph::KmerGraph;
+use crate::{ScoringMethod, SparcConfig};
 
 /// 计算每个 backbone 位置的最大滑窗覆盖度（C++ `cov_vec`）。
 ///
@@ -62,12 +62,7 @@ pub(crate) fn find_best_path(
         .iter()
         .enumerate()
     {
-        relax_from_source(
-            graph,
-            source_index as u32,
-            config,
-            source_window_max_coverage,
-        );
+        relax_from_source(graph, source_index, config, source_window_max_coverage);
     }
 }
 
@@ -76,11 +71,11 @@ pub(crate) fn find_best_path(
 /// 无 visited 集合：目标节点得分提升即（重复）入队，得分严格递增且有界故终止。
 fn relax_from_source(
     graph: &mut KmerGraph,
-    source_index: u32,
+    source_index: usize,
     config: &SparcConfig,
     source_window_max_coverage: u32,
 ) {
-    let mut queue: VecDeque<u32> = VecDeque::new();
+    let mut queue: VecDeque<usize> = VecDeque::new();
     queue.push_back(source_index);
 
     // 自适应阈值只依赖源位置的窗口最大覆盖度，C++ 在每条边上重复计算，
@@ -99,26 +94,26 @@ fn relax_from_source(
     while let Some(current_index) = queue.pop_front() {
         // 松弛过程不增删节点/边，先取边数再按下标访问，
         // 避免在迭代边的同时可变借用 nodes
-        let edge_count = graph.nodes[current_index as usize].right_edges.len();
+        let edge_count = graph.nodes[current_index].right_edges.len();
         for edge_position in 0..edge_count {
             let (target_index, edge_coverage) = {
-                let edge = &graph.nodes[current_index as usize].right_edges[edge_position];
+                let edge = &graph.nodes[current_index].right_edges[edge_position];
                 (edge.target_node, edge.coverage)
             };
 
-            let mut updated = false;
             // C++ 的 new_score 是 int（32 位），赋值时从 int64 截断；
             // 实际得分远小于 2^31，截断仅作语义对齐
             let new_score: i64;
+            let updated: bool;
 
             match config.scoring_method {
-                1 => {
+                ScoringMethod::LogRatio => {
                     // C++ 方法 1 的既有行为：用大数比较决定是否更新，
                     // 但 new_score 恒为 0 —— 更新会把得分清零。按原样保留。
-                    let current_score = graph.nodes[current_index as usize].score;
-                    let current_coverage = graph.nodes[current_index as usize].coverage;
-                    let target_score = graph.nodes[target_index as usize].score;
-                    let target_coverage = graph.nodes[target_index as usize].coverage;
+                    let current_score = graph.nodes[current_index].score;
+                    let current_coverage = graph.nodes[current_index].coverage;
+                    let target_score = graph.nodes[target_index].score;
+                    let target_coverage = graph.nodes[target_index].coverage;
                     if target_score == 0 {
                         updated = true;
                     } else {
@@ -130,9 +125,9 @@ fn relax_from_source(
                     }
                     new_score = 0;
                 }
-                2 => {
-                    let current_score = graph.nodes[current_index as usize].score;
-                    let target_score = graph.nodes[target_index as usize].score;
+                ScoringMethod::Linear => {
+                    let current_score = graph.nodes[current_index].score;
+                    let target_score = graph.nodes[target_index].score;
                     let candidate = if config.threshold < 0.0 {
                         // 每条边惩罚下限 -2
                         (current_score
@@ -145,14 +140,10 @@ fn relax_from_source(
                     new_score = candidate as i64;
                     updated = target_score < new_score;
                 }
-                _ => {
-                    // 未知打分方法：C++ 中 update 恒为 false，从不更新
-                    new_score = 0;
-                }
             }
 
             if updated {
-                let target = &mut graph.nodes[target_index as usize];
+                let target = &mut graph.nodes[target_index];
                 target.score = new_score;
                 target.best_predecessor = Some(current_index);
                 if !target.in_backbone {
@@ -215,7 +206,7 @@ mod tests {
         let config = SparcConfig {
             coverage_threshold: 2,
             threshold: -0.1,
-            scoring_method: 2,
+            scoring_method: ScoringMethod::Linear,
             ..SparcConfig::default()
         };
         find_best_path(&mut graph, &config, &[5, 5, 5]);
@@ -235,7 +226,7 @@ mod tests {
         let config = SparcConfig {
             coverage_threshold: 2,
             threshold: 0.2,
-            scoring_method: 2,
+            scoring_method: ScoringMethod::Linear,
             ..SparcConfig::default()
         };
         // 窗口最大覆盖度 5 → 阈值 = round(5 * 0.2) = 1 < CovTh → 取 2
@@ -245,22 +236,11 @@ mod tests {
     }
 
     #[test]
-    fn test_unknown_scoring_method_never_updates() {
+    fn test_log_ratio_writes_zero_scores() {
+        // C++ 方法 1（LogRatio）的既有行为：更新时 new_score 恒为 0
         let mut graph = build_test_graph();
         let config = SparcConfig {
-            scoring_method: 3,
-            ..SparcConfig::default()
-        };
-        find_best_path(&mut graph, &config, &[5, 5, 5]);
-        assert!(graph.nodes.iter().all(|node| node.score == 0));
-    }
-
-    #[test]
-    fn test_scoring_method_1_writes_zero_scores() {
-        // C++ 方法 1 的既有行为：更新时 new_score 恒为 0
-        let mut graph = build_test_graph();
-        let config = SparcConfig {
-            scoring_method: 1,
+            scoring_method: ScoringMethod::LogRatio,
             threshold: -0.1,
             ..SparcConfig::default()
         };

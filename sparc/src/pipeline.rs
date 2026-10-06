@@ -83,14 +83,14 @@ pub(crate) fn compute_consensus(
     // 6. 回溯解码（C++ 逐行对应）：
     //    末节点解码整串后先反转，前驱节点各贡献解码串首字符，最后整体反转
     let mut consensus_bytes: Vec<u8> = Vec::new();
-    let mut start_node: Option<u32> = None;
+    let mut start_node: Option<usize> = None;
     {
         let end_node = &graph.nodes[end_position_inclusive];
         let decoded = decode_kmer_to_string(end_node.kmer, kmer_size);
         consensus_bytes.extend(decoded.iter().rev());
         let mut cursor = end_node.best_predecessor;
         while let Some(node_index) = cursor {
-            let node = &graph.nodes[node_index as usize];
+            let node = &graph.nodes[node_index];
             let decoded = decode_kmer_to_string(node.kmer, kmer_size);
             consensus_bytes.push(decoded[0]);
             if node.best_predecessor.is_none() {
@@ -102,8 +102,7 @@ pub(crate) fn compute_consensus(
     consensus_bytes.reverse();
 
     // 路径头是 backbone 节点时其下标即 start，否则（孤儿链首）为 None
-    let start_position =
-        start_node.filter(|&node_index| (node_index as usize) < backbone_node_count);
+    let start_position = start_node.filter(|&node_index| node_index < backbone_node_count);
 
     // 7. debug 输出
     if config.debug {
@@ -132,15 +131,15 @@ pub(crate) fn compute_consensus(
     Consensus {
         seq: String::from_utf8(consensus_bytes).expect("k-mer 解码结果必为 ASCII"),
         start: start_position,
-        end: end_position_inclusive as u32 + 1,
+        end: end_position_inclusive + 1,
     }
 }
 
 /// debug 模式：沿 best_predecessor 标记共识路径上的节点。
 fn mark_selected_path(graph: &mut KmerGraph, end_position_inclusive: usize) {
-    let mut cursor = Some(end_position_inclusive as u32);
+    let mut cursor = Some(end_position_inclusive);
     while let Some(node_index) = cursor {
-        let node = &mut graph.nodes[node_index as usize];
+        let node = &mut graph.nodes[node_index];
         node.selected = true;
         cursor = node.best_predecessor;
     }
@@ -175,7 +174,7 @@ fn write_subgraph_dot(graph: &KmerGraph, subgraph_begin: i32, subgraph_end: i32,
     for index in begin..end {
         let node = &graph.nodes[index as usize];
         for edge in &node.right_edges {
-            let target = &graph.nodes[edge.target_node as usize];
+            let target = &graph.nodes[edge.target_node];
             let _ = writeln!(
                 output,
                 "\"n{index}\" -> \"n{}\" [label=\"{}\"];",

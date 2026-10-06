@@ -54,13 +54,9 @@ fn build_scenario(
         debug: false,
         kmer: 2,
         coverage_threshold: 2,
-        scoring_method: 2,
+        scoring_method: sparc::ScoringMethod::Linear,
         subgraph_begin: 0,
         subgraph_end: backbone.len() as i32,
-        cns_start: 0,
-        cns_end: backbone.len() as i32,
-        report_begin: 0,
-        report_end: backbone.len() as i32,
         cov_radius: 200,
         threshold: -0.1,
     };
@@ -91,8 +87,9 @@ fn bench_against_legacy(criterion: &mut Criterion) {
             sparc_legacy::sparc_consensus(&backbone, &queries_legacy, &legacy_config)
                 .expect("C++ 实现失败");
         assert_eq!(new_result.seq, legacy_result.seq, "基准场景两边结果不一致");
-        assert_eq!(new_result.start, legacy_result.start);
-        assert_eq!(new_result.end, legacy_result.end);
+        // legacy 的 start/end 为 u32（C++ uint32_t 语义），在对拍边界转换
+        assert_eq!(new_result.start, legacy_result.start.map(|v| v as usize));
+        assert_eq!(new_result.end, legacy_result.end as usize);
 
         let sample_size = if read_count > 1_000 { 20 } else { 50 };
         group.sample_size(sample_size);

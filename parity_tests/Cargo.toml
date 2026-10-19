@@ -18,3 +18,8 @@ criterion = { version = "0.5", default-features = false, features = ["cargo_benc
 [[bench]]
 name = "parity"
 harness = false
+
+# 与根 workspace 对齐，保证基准/剖析构建的优化配置一致
+[profile.release]
+lto = "thin"
+codegen-units = 1

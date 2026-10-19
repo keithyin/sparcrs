@@ -9,74 +9,18 @@
 //! | large | 10kb     | 5000 × 200bp   | ~100x  |
 
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
-use parity_tests::{Random, generate_alignment_with_span, random_base};
-
-/// 生成均匀铺满 backbone 的高覆盖 reads。
-fn build_scenario(
-    backbone_length: usize,
-    read_count: usize,
-    read_span: usize,
-    seed: u64,
-) -> (
-    String,
-    Vec<sparc::Query>,
-    Vec<sparc_legacy::Query>,
-    sparc::SparcConfig,
-) {
-    let mut rng = Random::new(seed);
-    let mut backbone_bytes = Vec::with_capacity(backbone_length);
-    for _ in 0..backbone_length {
-        backbone_bytes.push(random_base(&mut rng));
-    }
-    let backbone = String::from_utf8(backbone_bytes).unwrap();
-
-    let mut queries_new = Vec::with_capacity(read_count);
-    let mut queries_legacy = Vec::with_capacity(read_count);
-    for _ in 0..read_count {
-        let alignment = generate_alignment_with_span(&mut rng, backbone.as_bytes(), read_span);
-        let new_query = sparc::Query::new(
-            alignment.target_aligned.clone(),
-            alignment.query_aligned.clone(),
-            alignment.target_start,
-            alignment.target_end,
-        );
-        queries_new.push(new_query);
-        let legacy_query = sparc_legacy::Query::new(
-            alignment.target_aligned,
-            alignment.query_aligned,
-            alignment.target_start,
-            alignment.target_end,
-        );
-        queries_legacy.push(legacy_query);
-    }
-
-    let config = sparc::SparcConfig {
-        debug_output: None,
-        kmer: 2,
-        coverage_threshold: 2,
-        scoring_method: sparc::ScoringMethod::Linear,
-        cov_radius: 200,
-        threshold: -0.1,
-    };
-    (backbone, queries_new, queries_legacy, config)
-}
+use parity_tests::{BENCH_SCENARIOS, BuiltScenario, build_bench_scenario, to_legacy_config};
 
 fn bench_against_legacy(criterion: &mut Criterion) {
-    let scenarios = [
-        ("small_69bp_7reads", 69, 7, 60),
-        ("medium_10kb_1000reads_30x", 10_000, 1_000, 300),
-        ("large_10kb_5000reads_100x", 10_000, 5_000, 200),
-    ];
-
     let mut group = criterion.benchmark_group("consensus");
-    for (name, backbone_length, read_count, read_span) in scenarios {
-        let (backbone, queries_new, queries_legacy, config) = build_scenario(
-            backbone_length,
-            read_count,
-            read_span,
-            0xC0FF_EE00 + read_count as u64,
-        );
-        let legacy_config = parity_tests::to_legacy_config(&config);
+    for scenario in BENCH_SCENARIOS {
+        let BuiltScenario {
+            backbone,
+            config,
+            queries_new,
+            queries_legacy,
+        } = build_bench_scenario(scenario);
+        let legacy_config = to_legacy_config(&config);
 
         // 基准中不做断言，但先各跑一次确保两边都正常出结果
         let new_result =
@@ -89,11 +33,11 @@ fn bench_against_legacy(criterion: &mut Criterion) {
         assert_eq!(new_result.start, legacy_result.start.map(|v| v as usize));
         assert_eq!(new_result.end, legacy_result.end as usize);
 
-        let sample_size = if read_count > 1_000 { 20 } else { 50 };
+        let sample_size = if scenario.read_count > 1_000 { 20 } else { 50 };
         group.sample_size(sample_size);
 
         group.bench_with_input(
-            BenchmarkId::new("rust", name),
+            BenchmarkId::new("rust", scenario.name),
             &(&backbone, &queries_new, &config),
             |benchmark, (backbone, queries, config)| {
                 benchmark.iter(|| {
@@ -108,7 +52,7 @@ fn bench_against_legacy(criterion: &mut Criterion) {
         );
 
         group.bench_with_input(
-            BenchmarkId::new("cpp", name),
+            BenchmarkId::new("cpp", scenario.name),
             &(&backbone, &queries_legacy, &legacy_config),
             |benchmark, (backbone, queries, config)| {
                 benchmark.iter(|| {

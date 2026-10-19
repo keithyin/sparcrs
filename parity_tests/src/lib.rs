@@ -194,6 +194,115 @@ pub fn generate_config(rng: &mut Random, _backbone_len: usize) -> SparcConfig {
     }
 }
 
+/// 基准/剖析共用的固定场景参数。
+#[derive(Clone, Copy, Debug)]
+pub struct BenchmarkScenario {
+    pub name: &'static str,
+    pub backbone_length: usize,
+    pub read_count: usize,
+    pub read_span: usize,
+}
+
+/// 三档基准场景；`profile-large` 直接复用 large 项，保证两边负载一致。
+pub const BENCH_SCENARIOS: [BenchmarkScenario; 3] = [
+    BenchmarkScenario {
+        name: "small_69bp_7reads",
+        backbone_length: 69,
+        read_count: 7,
+        read_span: 60,
+    },
+    BenchmarkScenario {
+        name: "medium_10kb_1000reads_30x",
+        backbone_length: 10_000,
+        read_count: 1_000,
+        read_span: 300,
+    },
+    BenchmarkScenario {
+        name: "large_10kb_5000reads_100x",
+        backbone_length: 10_000,
+        read_count: 5_000,
+        read_span: 200,
+    },
+];
+
+/// 性能剖析的目标：基准表中的 large 场景。
+pub const LARGE_SCENARIO: BenchmarkScenario = BENCH_SCENARIOS[2];
+
+/// 基准场景的固定种子公式（与 read 数绑定，可复现）。
+pub fn scenario_seed(read_count: usize) -> u64 {
+    0xC0FF_EE00 + read_count as u64
+}
+
+/// 基准/剖析共用的场景构造结果。
+pub struct BuiltScenario {
+    pub backbone: String,
+    pub config: SparcConfig,
+    pub queries_new: Vec<Query>,
+    pub queries_legacy: Vec<legacy::Query>,
+}
+
+/// 生成均匀铺满 backbone 的高覆盖 reads，同时构造新旧两套 Query。
+///
+/// 注意保留生成器的 `reverse_strand` 标记：`Query::new` 默认正向，
+/// 负链 read 必须显式调用 `.reverse_strand()`。
+pub fn build_bench_scenario(scenario: BenchmarkScenario) -> BuiltScenario {
+    let mut rng = Random::new(scenario_seed(scenario.read_count));
+    let mut backbone_bytes = Vec::with_capacity(scenario.backbone_length);
+    for _ in 0..scenario.backbone_length {
+        backbone_bytes.push(random_base(&mut rng));
+    }
+    let backbone = String::from_utf8(backbone_bytes).unwrap();
+
+    let mut queries_new = Vec::with_capacity(scenario.read_count);
+    let mut queries_legacy = Vec::with_capacity(scenario.read_count);
+    for _ in 0..scenario.read_count {
+        let alignment =
+            generate_alignment_with_span(&mut rng, backbone.as_bytes(), scenario.read_span);
+
+        let new_query = Query::new(
+            alignment.target_aligned.clone(),
+            alignment.query_aligned.clone(),
+            alignment.target_start,
+            alignment.target_end,
+        );
+        let new_query = if alignment.reverse_strand {
+            new_query.reverse_strand()
+        } else {
+            new_query
+        };
+        queries_new.push(new_query);
+
+        let legacy_query = legacy::Query::new(
+            alignment.target_aligned,
+            alignment.query_aligned,
+            alignment.target_start,
+            alignment.target_end,
+        );
+        let legacy_query = if alignment.reverse_strand {
+            legacy_query.reverse_strand()
+        } else {
+            legacy_query
+        };
+        queries_legacy.push(legacy_query);
+    }
+
+    let config = SparcConfig {
+        debug_output: None,
+        kmer: 2,
+        coverage_threshold: 2,
+        scoring_method: ScoringMethod::Linear,
+        cov_radius: 200,
+        threshold: -0.1,
+    };
+
+    BuiltScenario {
+        backbone,
+        config,
+        queries_new,
+        queries_legacy,
+    }
+}
+
 /// 新 crate 的打分方法 → 原 CLI 数值（legacy binding 的 scoring_method 字段）。
 fn scoring_method_to_legacy(method: ScoringMethod) -> i32 {
     match method {
